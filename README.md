@@ -1,5 +1,5 @@
 # Matrix Calculator
-(Work in Progress)
+(Archived)
 
 Here are some screenshots of the application run on Linux Ubuntu:
   ![alt text](screenshots/home_window.png)
