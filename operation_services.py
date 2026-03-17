@@ -1,6 +1,6 @@
 import math
 
-from vector import Vector
+from vector import Matrix, Vector
 
 
 def parse_vectors_from_text_lines(lines):
@@ -80,3 +80,84 @@ def get_vector_properties(vector):
         "theta (rad)": vector.get_theta(),
         "phi (rad)": vector.get_phi(),
     }
+
+
+def parse_dimensions_text(text):
+    try:
+        rows_text, cols_text = text.strip().split()
+        rows = int(rows_text)
+        cols = int(cols_text)
+    except ValueError as exc:
+        raise ValueError("Dimensions must be in 'rows columns' integer format.") from exc
+
+    if rows <= 0 or cols <= 0:
+        raise ValueError("Rows and columns must be positive integers.")
+
+    return rows, cols
+
+
+def parse_matrix_from_cells(cell_rows):
+    if not cell_rows:
+        raise ValueError("Matrix must contain at least one row.")
+
+    width = len(cell_rows[0])
+    if width == 0:
+        raise ValueError("Matrix rows must contain at least one column.")
+
+    parsed_rows = []
+    for row in cell_rows:
+        if len(row) != width:
+            raise ValueError("All matrix rows must have the same number of columns.")
+
+        parsed_row = []
+        for value in row:
+            text = str(value).strip()
+            if text == "":
+                raise ValueError("Matrix entries cannot be empty.")
+            try:
+                parsed_row.append(float(text))
+            except ValueError as exc:
+                raise ValueError("Matrix entries must be numeric.") from exc
+
+        parsed_rows.append(parsed_row)
+
+    return Matrix([Vector(row) for row in parsed_rows])
+
+
+def matrix_add_subtract(matrices, operation):
+    if not matrices:
+        raise ValueError("At least one matrix is required.")
+
+    if operation not in ("addition", "subtraction"):
+        raise ValueError("Unsupported matrix reduction operation.")
+
+    result = matrices[0]
+    for matrix in matrices[1:]:
+        if operation == "addition":
+            result += matrix
+        else:
+            result -= matrix
+
+    return result
+
+
+def matrix_scalar_multiply(matrix, scalar):
+    return matrix * scalar
+
+
+def matrix_multiply(matrix_a, matrix_b):
+    return matrix_a * matrix_b
+
+
+def matrix_transpose(matrix):
+    return matrix.transpose()
+
+
+def matrix_gaussian_elimination(matrix):
+    triangular = Matrix.triangularise(matrix)
+    solved = Matrix.back(triangular)
+
+    if not solved:
+        raise ValueError("Gaussian elimination could not produce a valid result.")
+
+    return Matrix([Vector(solved)])

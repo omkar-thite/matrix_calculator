@@ -5,6 +5,13 @@ from vector import Vector, Matrix
 from operation_services import (
     compute_vector_binary_operation,
     get_vector_properties,
+    matrix_add_subtract,
+    matrix_gaussian_elimination,
+    matrix_multiply,
+    matrix_scalar_multiply,
+    matrix_transpose,
+    parse_dimensions_text,
+    parse_matrix_from_cells,
     parse_scalar_text,
     parse_vector_from_text_line,
     parse_vectors_from_text_lines,
@@ -41,6 +48,8 @@ class AppController:
 
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
+        self.screen_width = screen_width
+        self.screen_height = screen_height
 
         # 2. Calculate 50% of the screen size (must be converted to integers)
         window_width = int(screen_width * 0.25)
@@ -48,6 +57,7 @@ class AppController:
 
         # 3. Apply the dimensions to the window
         self.root.geometry(f"{window_width}x{window_height}")
+        self.root.minsize(700, 500)
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
 
@@ -69,6 +79,22 @@ class AppController:
     
     def show_home(self):
         self.switch_frame(HomeFrame)
+
+    def ensure_window_for_matrices(self, rows, cols, matrix_count=1):
+        """Grow the window to fit matrix-heavy screens while staying within display bounds."""
+        matrix_count = max(1, int(matrix_count))
+        rows = max(1, int(rows))
+        cols = max(1, int(cols))
+
+        estimated_width = (cols * 90) + 360
+        estimated_height = (rows * 46 * matrix_count) + 320
+
+        max_width = max(700, self.screen_width - 120)
+        max_height = max(500, self.screen_height - 140)
+
+        width = min(max_width, max(700, estimated_width))
+        height = min(max_height, max(500, estimated_height))
+        self.root.geometry(f"{width}x{height}")
 
 
 class HomeFrame(ttk.Frame):
@@ -505,16 +531,358 @@ class VectorHomeFrame(GenericMenuFrame):
         super().__init__(parent, controller, "Select Vector Operation", self.vector_ops, HomeFrame)
 
 
+class MatrixOperationFrameBase(OperationFrameBase):
+    def __init__(self, parent, controller, title):
+        super().__init__(parent, controller, title, MatrixHomeFrame)
+
+    def show_input_step(self):
+        raise NotImplementedError
+
+    def create_matrix_grid(self, start_row, rows, cols, label):
+        ttk.Label(self.body, text=label, font=self.custom_font).grid(
+            column=0, row=start_row, columnspan=2, sticky=W, pady=(8, 4)
+        )
+
+        frame = ttk.Frame(self.body)
+        frame.grid(column=0, row=start_row + 1, columnspan=2, sticky=W, pady=(0, 8))
+
+        entries = []
+        for i in range(rows):
+            row_entries = []
+            for j in range(cols):
+                entry = ttk.Entry(frame, width=8)
+                entry.grid(row=i, column=j, padx=4, pady=4)
+                row_entries.append(entry)
+            entries.append(row_entries)
+
+        return entries, start_row + 2
+
+    def flatten_entries(self, matrix_entry_sets):
+        flattened = []
+        for matrix_entries in matrix_entry_sets:
+            for row_entries in matrix_entries:
+                flattened.extend(row_entries)
+        return flattened
+
+    def show_matrix_result(self, matrix, heading="Resultant matrix:"):
+        self.clear_body()
+        ttk.Label(self.body, text=heading, font=self.custom_font).grid(
+            column=0, row=0, columnspan=2, sticky=W, pady=(0, 10)
+        )
+
+        frame = ttk.Frame(self.body)
+        frame.grid(column=0, row=1, columnspan=2, sticky=W)
+
+        for i, vector in enumerate(matrix.rows):
+            for j, value in enumerate(vector.coords):
+                ttk.Label(frame, text=str(value), padding=5).grid(row=i, column=j, padx=3, pady=3)
+
+        ttk.Button(self.body, text="Try Again", command=self.show_input_step).grid(
+            column=1, row=2, sticky=E, pady=(12, 0)
+        )
+
+
+class MatrixAddSubtractOpFrame(MatrixOperationFrameBase):
+    operation = ADD
+    title = "Matrix Addition"
+
+    def __init__(self, parent, controller):
+        super().__init__(parent, controller, self.title)
+        self.matrix_entries = []
+        self.show_input_step()
+
+    def show_input_step(self):
+        self.clear_body()
+        action = "add" if self.operation == ADD else "subtract"
+
+        ttk.Label(self.body, text=f"Number of matrices to {action}:", font=self.custom_font).grid(
+            column=0, row=0, sticky=W, pady=(0, 8)
+        )
+        count_entry = ttk.Entry(self.body, width=12)
+        count_entry.grid(column=1, row=0, sticky=E, pady=(0, 8))
+
+        ttk.Label(self.body, text="Dimensions (rows cols):", font=self.custom_font).grid(
+            column=0, row=1, sticky=W
+        )
+        dim_entry = ttk.Entry(self.body, width=12)
+        dim_entry.grid(column=1, row=1, sticky=E)
+
+        count_entry.focus_set()
+        self.bind_enter_chain([count_entry, dim_entry], lambda: self.show_matrices_step(count_entry, dim_entry))
+
+        ttk.Button(
+            self.body,
+            text="Next",
+            command=lambda: self.show_matrices_step(count_entry, dim_entry),
+        ).grid(column=1, row=2, sticky=E, pady=(12, 0))
+
+    def show_matrices_step(self, count_entry, dim_entry):
+        try:
+            count = int(count_entry.get())
+            if count < 2:
+                raise ValueError
+            rows, cols = parse_dimensions_text(dim_entry.get())
+        except ValueError as error:
+            self.show_error(str(error) if str(error) else "Enter valid count and dimensions.")
+            return
+
+        self.controller.ensure_window_for_matrices(rows, cols, count)
+
+        self.clear_body()
+        self.matrix_entries = []
+        row_cursor = 0
+
+        for i in range(1, count + 1):
+            entries, row_cursor = self.create_matrix_grid(row_cursor, rows, cols, f"Matrix {i}")
+            self.matrix_entries.append(entries)
+
+        all_entries = self.flatten_entries(self.matrix_entries)
+        if all_entries:
+            all_entries[0].focus_set()
+            self.bind_enter_chain(all_entries, self.calculate_result)
+
+        ttk.Button(self.body, text="Calculate", command=self.calculate_result).grid(
+            column=1, row=row_cursor, sticky=E, pady=(12, 0)
+        )
+
+    def calculate_result(self):
+        try:
+            matrices = []
+            for matrix_entries in self.matrix_entries:
+                cells = [[entry.get() for entry in row] for row in matrix_entries]
+                matrices.append(parse_matrix_from_cells(cells))
+            result = matrix_add_subtract(matrices, self.operation)
+        except ValueError as error:
+            self.show_error(str(error))
+            return
+
+        self.show_matrix_result(result)
+
+
+class MatrixAdditionOpFrame(MatrixAddSubtractOpFrame):
+    operation = ADD
+    title = "Matrix Addition"
+
+
+class MatrixSubtractionOpFrame(MatrixAddSubtractOpFrame):
+    operation = SUBTRACT
+    title = "Matrix Subtraction"
+
+
+class MatrixScalarOpFrame(MatrixOperationFrameBase):
+    def __init__(self, parent, controller):
+        super().__init__(parent, controller, "Matrix Scalar Multiplication")
+        self.matrix_entries = []
+        self.scalar_value = 0.0
+        self.show_input_step()
+
+    def show_input_step(self):
+        self.clear_body()
+        ttk.Label(self.body, text="Scalar:", font=self.custom_font).grid(column=0, row=0, sticky=W)
+        scalar_entry = ttk.Entry(self.body, width=12)
+        scalar_entry.grid(column=1, row=0, sticky=E)
+
+        ttk.Label(self.body, text="Dimensions (rows cols):", font=self.custom_font).grid(
+            column=0, row=1, sticky=W, pady=(8, 0)
+        )
+        dim_entry = ttk.Entry(self.body, width=12)
+        dim_entry.grid(column=1, row=1, sticky=E, pady=(8, 0))
+
+        scalar_entry.focus_set()
+        self.bind_enter_chain([scalar_entry, dim_entry], lambda: self.show_matrix_step(scalar_entry, dim_entry))
+
+        ttk.Button(
+            self.body,
+            text="Next",
+            command=lambda: self.show_matrix_step(scalar_entry, dim_entry),
+        ).grid(column=1, row=2, sticky=E, pady=(12, 0))
+
+    def show_matrix_step(self, scalar_entry, dim_entry):
+        try:
+            self.scalar_value = parse_scalar_text(scalar_entry.get())
+            rows, cols = parse_dimensions_text(dim_entry.get())
+        except ValueError as error:
+            self.show_error(str(error))
+            return
+
+        self.controller.ensure_window_for_matrices(rows, cols, 1)
+
+        self.clear_body()
+        matrix_entries, row_cursor = self.create_matrix_grid(0, rows, cols, "Matrix")
+        self.matrix_entries = [matrix_entries]
+
+        all_entries = self.flatten_entries(self.matrix_entries)
+        if all_entries:
+            all_entries[0].focus_set()
+            self.bind_enter_chain(all_entries, self.calculate_result)
+
+        ttk.Button(self.body, text="Calculate", command=self.calculate_result).grid(
+            column=1, row=row_cursor, sticky=E, pady=(12, 0)
+        )
+
+    def calculate_result(self):
+        try:
+            cells = [[entry.get() for entry in row] for row in self.matrix_entries[0]]
+            matrix = parse_matrix_from_cells(cells)
+            result = matrix_scalar_multiply(matrix, self.scalar_value)
+        except ValueError as error:
+            self.show_error(str(error))
+            return
+
+        self.show_matrix_result(result)
+
+
+class MatrixMultiplyOpFrame(MatrixOperationFrameBase):
+    def __init__(self, parent, controller):
+        super().__init__(parent, controller, "Matrix Multiplication")
+        self.matrix_entries = []
+        self.show_input_step()
+
+    def show_input_step(self):
+        self.clear_body()
+        ttk.Label(self.body, text="Matrix 1 dimensions (rows cols):", font=self.custom_font).grid(
+            column=0, row=0, sticky=W
+        )
+        dim1_entry = ttk.Entry(self.body, width=12)
+        dim1_entry.grid(column=1, row=0, sticky=E)
+
+        ttk.Label(self.body, text="Matrix 2 dimensions (rows cols):", font=self.custom_font).grid(
+            column=0, row=1, sticky=W, pady=(8, 0)
+        )
+        dim2_entry = ttk.Entry(self.body, width=12)
+        dim2_entry.grid(column=1, row=1, sticky=E, pady=(8, 0))
+
+        dim1_entry.focus_set()
+        self.bind_enter_chain([dim1_entry, dim2_entry], lambda: self.show_matrices_step(dim1_entry, dim2_entry))
+
+        ttk.Button(
+            self.body,
+            text="Next",
+            command=lambda: self.show_matrices_step(dim1_entry, dim2_entry),
+        ).grid(column=1, row=2, sticky=E, pady=(12, 0))
+
+    def show_matrices_step(self, dim1_entry, dim2_entry):
+        try:
+            r1, c1 = parse_dimensions_text(dim1_entry.get())
+            r2, c2 = parse_dimensions_text(dim2_entry.get())
+            if c1 != r2:
+                raise ValueError("Matrix dimensions are not valid for multiplication.")
+        except ValueError as error:
+            self.show_error(str(error))
+            return
+
+        self.controller.ensure_window_for_matrices(max(r1, r2), max(c1, c2), 2)
+
+        self.clear_body()
+        m1_entries, row_cursor = self.create_matrix_grid(0, r1, c1, "Matrix 1")
+        m2_entries, row_cursor = self.create_matrix_grid(row_cursor, r2, c2, "Matrix 2")
+        self.matrix_entries = [m1_entries, m2_entries]
+
+        all_entries = self.flatten_entries(self.matrix_entries)
+        if all_entries:
+            all_entries[0].focus_set()
+            self.bind_enter_chain(all_entries, self.calculate_result)
+
+        ttk.Button(self.body, text="Calculate", command=self.calculate_result).grid(
+            column=1, row=row_cursor, sticky=E, pady=(12, 0)
+        )
+
+    def calculate_result(self):
+        try:
+            first_cells = [[entry.get() for entry in row] for row in self.matrix_entries[0]]
+            second_cells = [[entry.get() for entry in row] for row in self.matrix_entries[1]]
+            matrix_a = parse_matrix_from_cells(first_cells)
+            matrix_b = parse_matrix_from_cells(second_cells)
+            result = matrix_multiply(matrix_a, matrix_b)
+        except ValueError as error:
+            self.show_error(str(error))
+            return
+
+        self.show_matrix_result(result)
+
+
+class MatrixTransformOpFrame(MatrixOperationFrameBase):
+    operation = "transpose"
+    title = "Transpose"
+
+    def __init__(self, parent, controller):
+        super().__init__(parent, controller, self.title)
+        self.matrix_entries = []
+        self.show_input_step()
+
+    def show_input_step(self):
+        self.clear_body()
+        ttk.Label(self.body, text="Dimensions (rows cols):", font=self.custom_font).grid(
+            column=0, row=0, sticky=W
+        )
+        dim_entry = ttk.Entry(self.body, width=12)
+        dim_entry.grid(column=1, row=0, sticky=E)
+        dim_entry.focus_set()
+
+        ttk.Button(
+            self.body,
+            text="Next",
+            command=lambda: self.show_matrix_step(dim_entry),
+        ).grid(column=1, row=1, sticky=E, pady=(12, 0))
+        dim_entry.bind("<Return>", lambda event: self.show_matrix_step(dim_entry))
+
+    def show_matrix_step(self, dim_entry):
+        try:
+            rows, cols = parse_dimensions_text(dim_entry.get())
+        except ValueError as error:
+            self.show_error(str(error))
+            return
+
+        self.controller.ensure_window_for_matrices(rows, cols, 1)
+
+        self.clear_body()
+        entries, row_cursor = self.create_matrix_grid(0, rows, cols, "Matrix")
+        self.matrix_entries = [entries]
+
+        all_entries = self.flatten_entries(self.matrix_entries)
+        if all_entries:
+            all_entries[0].focus_set()
+            self.bind_enter_chain(all_entries, self.calculate_result)
+
+        ttk.Button(self.body, text="Calculate", command=self.calculate_result).grid(
+            column=1, row=row_cursor, sticky=E, pady=(12, 0)
+        )
+
+    def calculate_result(self):
+        try:
+            cells = [[entry.get() for entry in row] for row in self.matrix_entries[0]]
+            matrix = parse_matrix_from_cells(cells)
+
+            if self.operation == "transpose":
+                result = matrix_transpose(matrix)
+            else:
+                result = matrix_gaussian_elimination(matrix)
+        except ValueError as error:
+            self.show_error(str(error))
+            return
+
+        self.show_matrix_result(result)
+
+
+class MatrixTransposeOpFrame(MatrixTransformOpFrame):
+    operation = "transpose"
+    title = "Transpose"
+
+
+class MatrixGaussianOpFrame(MatrixTransformOpFrame):
+    operation = "gauss"
+    title = "Gaussian Elimination"
+
+
 class MatrixHomeFrame(GenericMenuFrame):
     # Supported operations dictionary for GUI buttons
     matrix_ops = {
-                    "Addition": HomeFrame,
-                    "Subtraction": HomeFrame, 
-                    "Dot Product": HomeFrame,
-                    "Cross Product": HomeFrame,
-                    "Angle": HomeFrame, 
-                    "Scalar Multiplication": HomeFrame, 
-                    "Vector Properties": HomeFrame,
+                    "Addition": MatrixAdditionOpFrame,
+                    "Subtraction": MatrixSubtractionOpFrame,
+                    "Multiplication": MatrixMultiplyOpFrame,
+                    "Scalar Multiplication": MatrixScalarOpFrame,
+                    "Transpose": MatrixTransposeOpFrame,
+                    "Gaussian Elimination": MatrixGaussianOpFrame,
                    }
 
     def __init__(self, parent, controller):
@@ -522,477 +890,9 @@ class MatrixHomeFrame(GenericMenuFrame):
 
 
 
-class MatrixOps(AppController):
-
-    def __init__(self, app_object):
-        self.app_object = app_object
-        self.root = app_object.root
-        self.container = app_object.container
-        self.new_window()
-        self.home_window(MATRIX)
-
-    
-    def create_matrix(self, n, rows, columns, col, last_row, islabel=True, label_start=0):
-        '''
-        Creates given number of matrices with same with same dimensions and their labels, places them on GUI according to args rows and columns.
-        
-        Returns dict of created matrix objects as values and serial numbers as keys. {1: matrix1, 2: matrix2, ...}
-    
-        Parameters:
-        n (int) : Number of matrices to create
-        rows (int) : Number of rows of matrix(s)
-        columns (int) : Number of columns of matrix(s)
-        col (int) : Current column in grid
-        last_row (int) : Current last row of grid
-        islabel (bool): Label matrices if True else not.
-        label_start (int) : Start labelling matrices from this number
-
-        '''
-        matrices = {}
-
-        row = last_row + 1
-
-        # iterate over matrices
-        for k in range(1, n+1):
-            matrix = []
-            
-            if islabel == True:
-                ttk.Label(self.container, text=f"matrix {k + label_start}: ", font=self.custom_font, padding=10).grid(column=col, row=row, sticky=W)
-                row += 1
-
-            mframe = ttk.Frame(self.container)
-            mframe.grid(column=col, row=row, pady=5)
-
-            # iterate over rows
-            for _ in range(rows):
-                place_column = col
-                row_entries = []
-                matrix.append(row_entries)
-                
-                # iterate for columns
-                for _ in range (columns):
-                    current_entry = ttk.Entry(mframe, width=5)
-                    current_entry.grid(column=place_column, row=row, padx=15, pady=15)
-                    row_entries.append(current_entry)
-                    place_column += 1
-                row += 1
-            matrices[k] = matrix
-                
-        return matrices, row
-    
-    # Set focus on succesive matrix entries upon Enter button is pressed
-    def focus(self, i, j, k, rows, columns, number_of_matrix, matrices):
-        '''
-        Sets focus on successive matrix entries when Enter(or tab) is pressed by user
-        
-        Parameters:
-        i (int) = row number of a matrix
-        j (int) = column number of a matrix
-        k (int) = Matrix's serial number
-
-        rows (int) = Number of rows in  a matrix
-        columns (int) = Number of columns in a matrix
-        number_of_matrix = total number of matrices
-        matrices = Three dimensional list of matrices which are in form of lists
-
-        matrix[k][i][j] gives j'th entry of i'th row of k'th matrix
-        '''
-
-        if j != columns - 1:
-            matrices[k][i][j + 1].focus_set()
-        else:
-            if i != rows - 1:
-                matrices[k][i + 1][0].focus_set()
-            else:
-                if k != number_of_matrix:
-                    matrices[k + 1][0][0].focus_set()
-                else:
-                    return                
-    def get_matrix_objects(self, number_of_matrix, rows, columns, matrices):
-        '''
-        Converts list(s) into Matrix(s) objects
-        Returns dict where Converted Matrix objects are values and serial number are keys starting from 1 as in {1: Matrix1, 2: Matrix2, ...}
-
-        Parameters:
-        number_of_matrix (int) = total number of matrices to convert
-        rows (int) = rows of matrix(s)
-        columns (int) = columns of matrix(s)
-        matrices = list of matrix lists [[[mat1row1], [mat1row2], ...]
-                                            [mat2row1], mat2row2],...]
-                                            ...]
-        '''
-        matrix_dict = {}
-
-        for k in range(1, number_of_matrix + 1):
-            matrix = []
-            for i in range(rows):
-                row = []
-                
-                for j in range(columns):
-                    entry = matrices[k][i][j].get()
-                    try:
-                        entry = float(entry)
-                    except ValueError:
-                        messagebox.showerror("Invalid Input!", "Invalid input")
-                        return None
-                    else:
-                        row.append(entry)
-                
-                matrix.append(row)
-            matrix_dict[k] = matrix
-
-        for key in matrix_dict:
-            vectors_list = []
-
-            for item in matrix_dict[key]:
-                vectors_list.append(Vector(item))
-            matrix_dict[key] = Matrix(vectors_list)
-     
-        return matrix_dict
-    
-    def matrix_add(self, operation=ADD):
-        '''
-        This thread implemetns Addition and Subtraction operations as both require similar GUI with minor changes
-        '''
-  
-        self.new_window()
-        self.create_button("Back", partial(self.__init__, self.app_object), 0, 0, W, pady=5)
-
-        if operation == ADD:
-            ttk.Label(self.container, text="Number of matrices to add: ", font=self.custom_font).grid(column=0, row=2, columnspan=2, pady=15, sticky=W)
-        elif operation == SUBTRACT:
-            ttk.Label(self.container, text="Number of matrices to subtract: ", font=self.custom_font).grid(column=0, row=2, columnspan=2, pady=15, sticky=W) 
-       
-        ttk.Label(self.container, text="Dimension of matrices separated by space: ", font=self.custom_font).grid(column=0, row=4, columnspan=2, pady=15, sticky=W)
-    
-        number = ttk.Entry(self.container)
-        number.grid(column=0, row=3, pady=10, sticky=W)
-        # set cursor on entry
-        number.focus_set()
-
-        dimensions = ttk.Entry(self.container)
-        dimensions.grid(column=0, row=5, padx=15, sticky=W)
-
-        number.bind('<Return>', lambda event: dimensions.focus_set())
-
-        # bind Enter key to entry
-        dimensions.bind('<Return>', lambda event: self.matrix_add_gui2(number.get(), dimensions.get().split(" "), operation))
-
-        enter = ttk.Button(self.container, text="Enter", command = lambda event: self.matrix_add_gui2(number.get(), dimensions.get().split(" "), operation))
-        enter.grid(column=1, row=6, padx=15, sticky= E)
-        return None
-
-
-    def matrix_add_gui2(self, n, dimensions, operation=ADD):
-        
-        self.new_window()
-        self.create_button("Back", partial(self.matrix_add), 0, 0, W)
-
-        try:
-            n = int(n)
-            rows, columns = dimensions
-            rows = int(rows)
-            columns = int(columns)
-        except ValueError:
-            messagebox.showerror("Inavlid Input", "Invalid Input")
-            self.matrix_add(operation)
-        else:
-            col = 0
-            row = 0
-            matrices, last_row = self.create_matrix(n, rows, columns, col, row)   
-            
-            number_of_matrix = len(matrices)
-
-            matrices[1][0][0].focus_set()
-
-            for k in range(1, number_of_matrix + 1):
-                for i in range(rows):
-                    for j in range(columns):
-                        matrices[k][i][j].bind("<Return>", lambda event, i=i,j=j,k=k,rows=rows,columns=columns,number_of_matrix=number_of_matrix: self.focus(i,j,k,rows,columns,number_of_matrix, matrices))
-            
-        
-            enter = ttk.Button(self.container, text="Enter", command = partial(self.matrix_add_gui3, number_of_matrix, rows, columns, matrices, operation))
-            enter.grid(column=0, row=last_row+1, padx=15, sticky= E)
-
-            matrices[number_of_matrix][rows - 1][columns - 1].bind("<Return>", lambda event: enter.focus_set())
-            enter.bind("<Return>", lambda event: self.matrix_add_gui3(number_of_matrix, rows, columns, matrices, operation))
-
-
-    def matrix_add_gui3(self, number_of_matrix, rows, columns, matrices,operation=ADD):
-        sum = Matrix([])
-        matrix = self.get_matrix_objects(number_of_matrix, rows, columns, matrices)
-        
-        if operation == ADD:
-            for key in matrix:
-                sum += matrix[key]
-        elif operation == SUBTRACT:
-            for key in matrix:
-                sum -= matrix[key]
-
-        self.show_result(sum, rows, columns)
-    
-    # Matrix Scalar Product 
-    def scalar_product(self):
-        self.new_window()
-        self.create_button("Back", partial(self.__init__, self.app_object), 0, 0, W, pady=5)
-        col = 0
-        row = 1
-         
-        ttk.Label(self.container, text="Scalar: ", font=self.custom_font).grid(column=col, row=row, pady=15, sticky=W)
-
-        scalar = ttk.Entry(self.container)
-        scalar.grid(column=col + 1, row=row, sticky=W)
-        scalar.focus_set()
-        row += 1
-
-        ttk.Label(self.container, text=f"Dimension of matrix separated by space: ", font=self.custom_font).grid(column=col, row=row, columnspan=2, pady=15, sticky=W)
-        row += 1
-
-        dimensions= ttk.Entry(self.container)
-        dimensions.grid(column=col, row=row, padx=15, sticky=W)
-        row += 1
-
-        enter = ttk.Button(self.container, text="Enter", command = partial(self.product_gui2, row + 1))
-        enter.grid(column=col + 1, row=row - 1, padx=15, sticky=W)
-    
-        scalar.bind("<Return>", lambda event : dimensions.focus_set())
-        enter.bind("<Return>", lambda event : self.product_gui2(dimensions, row + 1, scalar))
-
-        dimensions.bind("<Return>", lambda event : enter.focus_set())
-        
-        enter.bind("<Return>", lambda event : self.product_gui2(dimensions.get().strip().split(" "), row + 1, scalar.get().strip()))
-
-      
-    def product_gui2(self, dimensions, last_row, scalar):
-        # Number of matrices
-        n = 1
-
-        try:
-            for i in range(n):
-                rows, columns = dimensions
-                rows = int(rows)
-                columns = int(columns)
-                scalar = int(scalar)
-
-        except ValueError:
-            messagebox.showerror("Inavlid Input", "Invalid Input")
-            self.scalar_product()
-        else:
-            matrix, last_row = self.create_matrix(n, rows, columns, 0, last_row, True)
-
-            matrix[1][0][0].focus()
-
-            for k in range(1, n + 1):
-                for i in range(rows):
-                    for j in range(columns):
-                        matrix[k][i][j].bind("<Return>", lambda event, i=i,j=j,k=k,rows=rows,columns=columns,number_of_matrix=n: self.focus(i,j,k,rows,columns,number_of_matrix, matrix))
-            
-            enter = ttk.Button(self.container, text="Enter", command = partial(self.product_gui3, matrix, rows, columns, n))
-            enter.grid(column=1, row=last_row+1, padx=15, sticky=W)
-            last_row = 3
-
-            matrix[n][rows - 1][columns - 1].bind("<Return>", lambda event: enter.focus_set())
-            enter.bind("<Return>", lambda event: self.product_gui3(scalar, matrix, rows, columns, n))
-
-    def product_gui3(self, scalar, matrix, rows, columns, n):
-        matrix_dict = self.get_matrix_objects(n, rows, columns, matrix)
-        result = matrix_dict[1] * scalar
-        self.show_result(result, rows, columns)
-
-    # Matrix Multiplication
-    def matrix_multiply(self):
-        self.new_window()
-        self.create_button("Back", partial(self.__init__, self.app_object), 0, 0, W, pady=5)
-        col = 0
-        row = 1
-        # Number of matrices
-        n = 2
-
-        # Verify dimensions condition
-        dimensions = {}
-        for i in range(1, n + 1):
-            ttk.Label(self.container, text=f"Dimension of matrix {i} separated by space: ", font=self.custom_font).grid(column=col, row=row, columnspan=2, pady=15, sticky=W)
-            row += 1
-
-            dimensions[i] = ttk.Entry(self.container)
-            dimensions[i].grid(column=col, row=row, padx=15, sticky=W)
-            row += 1
-        
-        dimensions[1].focus_set()
-        dimensions[1].bind("<Return>", lambda event: dimensions[2].focus_set())
-        
-        enter = ttk.Button(self.container, text="Enter", command = partial(self.matrix_multiply2))
-        enter.grid(column=col + 1, row=row - 1, padx=15, sticky=W)
-    
-        dimensions[2].bind("<Return>", lambda event : enter.focus_set())
-        enter.bind("<Return>", lambda event : self.matrix_multiply2(dimensions))
-
-    # Returns dimensions as an int list [rows, columns]
-    def extract_dimensions(self, dimensions):
-        dim = []
-
-        # Extract dimensions from entries
-        try: 
-            for key in dimensions:
-                rows, columns = dimensions[key].get().strip().split(" ")
-                dim.append((int(rows), int(columns)))
-        except ValueError:
-            messagebox.showerror("Inavlid Input", "Invalid dimensions!")
-            return None
-                
-        return dim
-    
-    # Verify dimensions and create matrix window
-    def matrix_multiply2(self, dimensions):
-        dim = self.extract_dimensions(dimensions)
-
-        if dim[0][1] != dim[1][0]:
-            messagebox.showerror("Inavlid Input", "Dimensions not suitable for multiplication!")
-            self.matrix_multiply()
-        else:
-            self.new_window()
-            self.create_button("Back", partial(self.matrix_multiply), 0, 0, W, pady=5)
-            ttk.Label(self.container, text=f"Use tab to go to next entry. ", font=self.custom_font).grid(column=0, row=1, columnspan=2, pady=15, sticky=W)
-
-            col = 0
-            row = 2
-            # Number of matrices
-            n = 2
-
-            m, n = dim[0]
-            p, q = dim[1]
-
-            matrix1, first_last_row = self.create_matrix(1, m, n, 0, row, True, 0)
-            matrix2, second_last_row = self.create_matrix(1, p, q, 0, first_last_row, True, 1)
-
-            matrix1[1][0][0].focus()
-           
-            enter = ttk.Button(self.container, text="Enter", command = partial(self.matrix_multiply3, matrix1, matrix2, m, n, p, q))
-            enter.grid(column=col, row=second_last_row + 1, padx=15, sticky=W)
-        
-            enter.bind("<Return>", lambda event : self.matrix_multiply3(matrix1, matrix2, m, n, p, q))
-            
-    # Multiply two matrices and show resultant matrix
-    def matrix_multiply3(self, matrix1, matrix2, m, n, p, q):
-        matrix1 = self.get_matrix_objects(1, m, n, matrix1)
-        matrix2 = self.get_matrix_objects(1, p, q, matrix2)
-        result = matrix1[1] * matrix2[1]
-
-        self.show_result(result, m, q)
-    # Transpose Or Gauss eliminate function thread
-    def transpose_matrix(self, operation="transpose"):
-        '''
-        This thread implements Gauss elimination and transpose operations as both require similar GUI
-        '''
-        self.new_window()
-        self.create_button("Back", partial(self.__init__, self.app_object), 0, 0, W, pady=5)
-
-        ttk.Label(self.container, text=f"Dimension of matrix separated by space: ", font=self.custom_font).grid(column=0, row=1, columnspan=2, pady=15, sticky=W)
-    
-        dimensions= ttk.Entry(self.container)
-        dimensions.grid(column=0, row=2, padx=15, sticky=W)
-        dimensions.focus_set()
-        dimensions.bind("<Return>", lambda event: enter.focus_set())
-
-        enter = ttk.Button(self.container, text="Enter", command = partial(self.transpose2, dimensions, 2, operation))
-        enter.grid(column=1, row=2, padx=15, sticky=W)
-        end_row = 2
-
-        enter.bind("<Return>", lambda event: self.transpose2(dimensions, end_row, operation))
-    
-    # Create matrix of given dimensions
-    def transpose2(self, dimensions, end_row, operation):
-        try:
-            rows, columns = dimensions.get().strip().split(" ")
-            rows = int(rows)
-            columns = int(columns)
-
-        except ValueError:
-            messagebox.showerror("Inavlid Input", "Invalid dimensions!")
-            self.transpose_matrix()
-        else:
-            n = 1
-            matrix, last_row = self.create_matrix(n, rows, columns, 0, end_row, False)
-
-            matrix[1][0][0].focus()
-            for k in range(1, n + 1):
-                for i in range(rows):
-                    for j in range(columns):
-                        matrix[k][i][j].bind("<Return>", lambda event, i=i,j=j,k=k,rows=rows,columns=columns,number_of_matrix=n: self.focus(i,j,k,rows,columns,number_of_matrix, matrix))
-            
-            enter = ttk.Button(self.container, text="Enter", command = partial(self.transpose3, matrix, rows, columns, dimensions, end_row, operation))
-            enter.grid(column=0, row=last_row + 1, padx=15, sticky=W)
-            matrix[1][rows - 1][columns - 1].bind("<Return>", lambda event: enter.focus_set())
-
-            enter.bind("<Return>", lambda event: self.transpose3(matrix, rows, columns, dimensions, end_row, operation))
-
-    # Transpose or Gauss eliminate matrix and show result
-    def transpose3(self, matrix, rows, columns, dimensions, end_row, operation):
-        result = self.get_matrix_objects(1, rows, columns, matrix)
-
-        #  
-        if operation == "gauss_eliminate": 
-            try:
-
-                # get lower triangularised matrix     
-                result = Matrix.triangularise(result[1])
-                # back substitue
-                result = Matrix.back(result)
-                length = len(result)
-
-                if result:
-                    result = Matrix([Vector(result)])
-                else:
-                    raise ValueError
-
-            except ValueError:
-                messagebox.showerror("Error", "Invalid input for Gauss elimination process!")
-                self.transpose2(dimensions, end_row, operation)
-            else:
-                self.show_result(result, 1, length)
- 
-        elif operation == "transpose":
-                try:
-                    result = result[1].transpose()
-                    rows = result.m
-                    columns = result.n
-                except ValueError:
-                    messagebox.showerror("Error", "Error while transposing!")
-                    self.transpose2(dimensions, end_row, operation)
-                else:
-                    self.show_result(result, rows, columns)
-
-    # Display resultant matrix for all operations                    
-    def show_result(self, matrix, rows, columns):
-        self.new_window()
-        
-        ttk.Label(self.container, text="Resultant matrix: ", font=self.custom_font).grid(column=0, row=0, columnspan=2, pady=15, sticky=W)
-        
-        result, last_row = self.create_matrix(1, rows, columns, 1, 0, islabel=False)
-
-        for k in range(1,2):
-            for i in range(rows):
-                for j in range(columns):
-                    result[k][i][j].insert(0, matrix.rows[i].cords[j])
-        
-        home = ttk.Button(self.container, text="Home", command=partial(self.__init__,self.app_object))
-        home.grid(column=0, row=last_row+1, sticky=E)
-        home.focus_set()
-        home.bind("<Return>", lambda event: self.__init__(self.app_object))
-             
-    # Supported operations
-    operations = {
-                "Addition" : partial(matrix_add, operation = ADD) , 
-                "Subtraction" :  partial(matrix_add, operation = SUBTRACT),
-                "Multiplication":  partial(matrix_multiply), 
-                "Scalar Multiplication" :  partial(scalar_product),
-                "Transpose":partial(transpose_matrix),
-                "Gaussian Elimination": partial(transpose_matrix, operation="gauss_eliminate") ,  
-                }
-    
 def main():
     root = tk.Tk()
-    root.resizable(False, False)
+    root.resizable(True, True)
     app = AppController(root)
     app.root.mainloop()
 
