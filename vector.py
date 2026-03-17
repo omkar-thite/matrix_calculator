@@ -25,7 +25,7 @@ class Vector:
         :param coords: A list or tuple of numeric values.
         """
         if not isinstance(coords, (list, tuple)):
-            logger.error('coords is not of ty list or tuple')
+            logger.error('coords is not of type list or tuple')
             raise TypeError("coords must be a list or a tuple")
 
         self.coords = coords

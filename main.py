@@ -2,6 +2,15 @@ import tkinter as tk
 from tkinter import ttk, messagebox, font
 from functools import partial
 from vector import Vector, Matrix
+from operation_services import (
+    compute_vector_binary_operation,
+    get_vector_properties,
+    parse_scalar_text,
+    parse_vector_from_text_line,
+    parse_vectors_from_text_lines,
+    reduce_vectors,
+    scalar_multiply_vector,
+)
 
 N = tk.N
 W= tk.W
@@ -93,7 +102,7 @@ class HomeFrame(ttk.Frame):
                                    text="Matrix", 
                                    padding=10,
                                    style="BigText.TButton",
-                                   command=lambda: controller.switch_frame(MatrixOps)
+                                   command=lambda: controller.switch_frame(MatrixHomeFrame)
                                    )
         matrix_button.grid(column=0, row=3, sticky='ew', padx=40, pady=10)
 
@@ -148,9 +157,357 @@ class GenericMenuFrame(ttk.Frame):
         self.rowconfigure(start_row + (len(operations) // max_cols) + 1, weight=1)
 
 
+class OperationFrameBase(ttk.Frame):
+    def __init__(self, parent, controller, title, back_frame):
+        super().__init__(parent)
+        self.controller = controller
+        self.custom_font = getattr(controller, "custom_font", ("Arial", 24))
+        self.back_frame = back_frame
+
+        for i in range(3):
+            self.columnconfigure(i, weight=1)
+        self.rowconfigure(2, weight=1)
+
+        ttk.Button(
+            self,
+            text="Back",
+            command=lambda: controller.switch_frame(back_frame),
+            padding=10,
+        ).grid(column=0, row=0, sticky=W, padx=10, pady=10)
+
+        ttk.Button(
+            self,
+            text="Home",
+            command=controller.show_home,
+            padding=10,
+        ).grid(column=2, row=0, sticky=E, padx=10, pady=10)
+
+        ttk.Label(self, text=title, font=self.custom_font).grid(
+            column=0, row=1, columnspan=3, sticky="ew", pady=(10, 20)
+        )
+
+        self.body = ttk.Frame(self)
+        self.body.grid(column=0, row=2, columnspan=3, sticky="nsew", padx=20, pady=10)
+        self.body.columnconfigure(0, weight=1)
+        self.body.columnconfigure(1, weight=1)
+
+    def clear_body(self):
+        for child in self.body.winfo_children():
+            child.destroy()
+
+    def show_error(self, message):
+        messagebox.showerror("Invalid Input", message)
+
+    def bind_enter_chain(self, entries, on_submit):
+        for i, entry in enumerate(entries):
+            if i < len(entries) - 1:
+                entry.bind("<Return>", lambda event, idx=i: entries[idx + 1].focus_set())
+            else:
+                entry.bind("<Return>", lambda event: on_submit())
+
+
+class VectorAddSubtractFrame(OperationFrameBase):
+    operation = ADD
+    title = "Vector Addition"
+
+    def __init__(self, parent, controller):
+        super().__init__(parent, controller, self.title, VectorHomeFrame)
+        self.vector_entries = []
+        self.n_vectors = 0
+        self.show_count_step()
+
+    def show_count_step(self):
+        self.clear_body()
+
+        action = "add" if self.operation == ADD else "subtract"
+        ttk.Label(
+            self.body,
+            text=f"Number of vectors to {action}:",
+            font=self.custom_font,
+        ).grid(column=0, row=0, columnspan=2, sticky=W, pady=(0, 10))
+
+        count_entry = ttk.Entry(self.body, width=12)
+        count_entry.grid(column=0, row=1, sticky=W)
+        count_entry.focus_set()
+
+        submit = ttk.Button(
+            self.body,
+            text="Enter",
+            command=lambda: self.show_components_step(count_entry.get()),
+        )
+        submit.grid(column=1, row=1, sticky=E)
+        count_entry.bind("<Return>", lambda event: self.show_components_step(count_entry.get()))
+
+    def show_components_step(self, n_text):
+        try:
+            n = int(n_text)
+            if n < 2:
+                raise ValueError
+        except ValueError:
+            self.show_error("Please enter an integer greater than or equal to 2.")
+            return
+
+        self.n_vectors = n
+        self.vector_entries = []
+        self.clear_body()
+
+        ttk.Label(
+            self.body,
+            text="Enter components separated by spaces:",
+            font=self.custom_font,
+        ).grid(column=0, row=0, columnspan=2, sticky=W, pady=(0, 10))
+
+        for i in range(1, n + 1):
+            ttk.Label(self.body, text=f"Vector {i}:").grid(column=0, row=i, sticky=W, pady=6)
+            entry = ttk.Entry(self.body, width=30)
+            entry.grid(column=1, row=i, sticky=E, pady=6)
+            self.vector_entries.append(entry)
+
+        if self.vector_entries:
+            self.vector_entries[0].focus_set()
+            self.bind_enter_chain(self.vector_entries, self.calculate_result)
+
+        ttk.Button(self.body, text="Calculate", command=self.calculate_result).grid(
+            column=1, row=n + 1, sticky=E, pady=(12, 0)
+        )
+
+    def parse_vectors(self):
+        lines = [entry.get() for entry in self.vector_entries]
+        return parse_vectors_from_text_lines(lines)
+
+    def calculate_result(self):
+        try:
+            vectors = self.parse_vectors()
+            result = reduce_vectors(vectors, self.operation)
+        except ValueError as error:
+            self.show_error(str(error))
+            return
+
+        self.show_result(result)
+
+    def show_result(self, vector):
+        self.clear_body()
+        coords = " ".join(str(value) for value in vector.coords)
+
+        label = "Resultant Vector:"
+        ttk.Label(self.body, text=label, font=self.custom_font).grid(
+            column=0, row=0, sticky=W, pady=(0, 10)
+        )
+        ttk.Label(self.body, text=f"[ {coords} ]", font=self.custom_font).grid(
+            column=0, row=1, columnspan=2, sticky=W
+        )
+
+        ttk.Button(self.body, text="Try Again", command=self.show_count_step).grid(
+            column=1, row=2, sticky=E, pady=(12, 0)
+        )
+
+
+class VectorAdditionOpFrame(VectorAddSubtractFrame):
+    operation = ADD
+    title = "Vector Addition"
+
+
+class VectorSubtractionOpFrame(VectorAddSubtractFrame):
+    operation = SUBTRACT
+    title = "Vector Subtraction"
+
+
+class VectorBinaryOpFrame(OperationFrameBase):
+    operation = "dot"
+    title = "Vector Operation"
+
+    def __init__(self, parent, controller):
+        super().__init__(parent, controller, self.title, VectorHomeFrame)
+        self.show_input_step()
+
+    def show_input_step(self):
+        self.clear_body()
+
+        if self.operation == "cross":
+            prompt = "Enter two 3D vectors (space-separated):"
+        else:
+            prompt = "Enter two vectors (space-separated):"
+
+        ttk.Label(self.body, text=prompt, font=self.custom_font).grid(
+            column=0, row=0, columnspan=2, sticky=W, pady=(0, 10)
+        )
+
+        ttk.Label(self.body, text="Vector 1:").grid(column=0, row=1, sticky=W, pady=6)
+        first = ttk.Entry(self.body, width=30)
+        first.grid(column=1, row=1, sticky=E, pady=6)
+
+        ttk.Label(self.body, text="Vector 2:").grid(column=0, row=2, sticky=W, pady=6)
+        second = ttk.Entry(self.body, width=30)
+        second.grid(column=1, row=2, sticky=E, pady=6)
+
+        first.focus_set()
+        self.bind_enter_chain([first, second], lambda: self.calculate_result(first, second))
+
+        ttk.Button(
+            self.body,
+            text="Calculate",
+            command=lambda: self.calculate_result(first, second),
+        ).grid(column=1, row=3, sticky=E, pady=(12, 0))
+
+    def calculate_result(self, first_entry, second_entry):
+        try:
+            vectors = parse_vectors_from_text_lines([first_entry.get(), second_entry.get()])
+            label, result = compute_vector_binary_operation(vectors[0], vectors[1], self.operation)
+        except ValueError as error:
+            self.show_error(str(error))
+            return
+
+        self.show_result(label, result)
+
+    def show_result(self, label, result):
+        self.clear_body()
+        ttk.Label(self.body, text=f"{label}:", font=self.custom_font).grid(
+            column=0, row=0, sticky=W, pady=(0, 10)
+        )
+
+        if isinstance(result, Vector):
+            value = f"[ {' '.join(str(x) for x in result.coords)} ]"
+        else:
+            value = f"{result}"
+
+        ttk.Label(self.body, text=value, font=self.custom_font).grid(
+            column=0, row=1, columnspan=2, sticky=W
+        )
+
+        ttk.Button(self.body, text="Try Again", command=self.show_input_step).grid(
+            column=1, row=2, sticky=E, pady=(12, 0)
+        )
+
+
+class VectorDotOpFrame(VectorBinaryOpFrame):
+    operation = "dot"
+    title = "Dot Product"
+
+
+class VectorCrossOpFrame(VectorBinaryOpFrame):
+    operation = "cross"
+    title = "Cross Product"
+
+
+class VectorAngleOpFrame(VectorBinaryOpFrame):
+    operation = "angle"
+    title = "Angle Between Vectors"
+
+
+class VectorScalarOpFrame(OperationFrameBase):
+    def __init__(self, parent, controller):
+        super().__init__(parent, controller, "Vector Scalar Multiplication", VectorHomeFrame)
+        self.show_input_step()
+
+    def show_input_step(self):
+        self.clear_body()
+
+        ttk.Label(self.body, text="Enter vector and scalar:", font=self.custom_font).grid(
+            column=0, row=0, columnspan=2, sticky=W, pady=(0, 10)
+        )
+
+        ttk.Label(self.body, text="Vector:").grid(column=0, row=1, sticky=W, pady=6)
+        vector_entry = ttk.Entry(self.body, width=30)
+        vector_entry.grid(column=1, row=1, sticky=E, pady=6)
+
+        ttk.Label(self.body, text="Scalar:").grid(column=0, row=2, sticky=W, pady=6)
+        scalar_entry = ttk.Entry(self.body, width=30)
+        scalar_entry.grid(column=1, row=2, sticky=E, pady=6)
+
+        vector_entry.focus_set()
+        self.bind_enter_chain([vector_entry, scalar_entry], lambda: self.calculate_result(vector_entry, scalar_entry))
+
+        ttk.Button(
+            self.body,
+            text="Calculate",
+            command=lambda: self.calculate_result(vector_entry, scalar_entry),
+        ).grid(column=1, row=3, sticky=E, pady=(12, 0))
+
+    def calculate_result(self, vector_entry, scalar_entry):
+        try:
+            vector = parse_vector_from_text_line(vector_entry.get())
+            scalar = parse_scalar_text(scalar_entry.get())
+            result = scalar_multiply_vector(vector, scalar)
+        except ValueError as error:
+            self.show_error(str(error))
+            return
+
+        self.clear_body()
+        ttk.Label(self.body, text="Scalar product:", font=self.custom_font).grid(
+            column=0, row=0, sticky=W, pady=(0, 10)
+        )
+        ttk.Label(
+            self.body,
+            text=f"[ {' '.join(str(x) for x in result.coords)} ]",
+            font=self.custom_font,
+        ).grid(column=0, row=1, columnspan=2, sticky=W)
+        ttk.Button(self.body, text="Try Again", command=self.show_input_step).grid(
+            column=1, row=2, sticky=E, pady=(12, 0)
+        )
+
+
+class VectorPropertiesOpFrame(OperationFrameBase):
+    def __init__(self, parent, controller):
+        super().__init__(parent, controller, "Vector Properties", VectorHomeFrame)
+        self.show_input_step()
+
+    def show_input_step(self):
+        self.clear_body()
+        ttk.Label(self.body, text="Enter vector:", font=self.custom_font).grid(
+            column=0, row=0, columnspan=2, sticky=W, pady=(0, 10)
+        )
+
+        entry = ttk.Entry(self.body, width=30)
+        entry.grid(column=0, row=1, sticky=W)
+        entry.focus_set()
+
+        ttk.Button(
+            self.body,
+            text="Calculate",
+            command=lambda: self.calculate_result(entry),
+        ).grid(column=1, row=1, sticky=E)
+        entry.bind("<Return>", lambda event: self.calculate_result(entry))
+
+    def calculate_result(self, entry):
+        try:
+            vector = parse_vector_from_text_line(entry.get())
+            properties = get_vector_properties(vector)
+        except ValueError as error:
+            self.show_error(str(error))
+            return
+
+        self.clear_body()
+        row = 0
+        for key, value in properties.items():
+            ttk.Label(self.body, text=f"{key}: {value}", font=self.custom_font).grid(
+                column=0, row=row, columnspan=2, sticky=W, pady=5
+            )
+            row += 1
+
+        ttk.Button(self.body, text="Try Again", command=self.show_input_step).grid(
+            column=1, row=row, sticky=E, pady=(12, 0)
+        )
+
+
 class VectorHomeFrame(GenericMenuFrame):
     # Supported operations dictionary for GUI buttons
     vector_ops = {
+                    "Addition": VectorAdditionOpFrame,
+                    "Subtraction": VectorSubtractionOpFrame, 
+                    "Dot Product": VectorDotOpFrame,
+                    "Cross Product": VectorCrossOpFrame,
+                    "Angle": VectorAngleOpFrame, 
+                    "Scalar Multiplication": VectorScalarOpFrame, 
+                    "Vector Properties": VectorPropertiesOpFrame,
+                   }
+
+    def __init__(self, parent, controller):
+        super().__init__(parent, controller, "Select Vector Operation", self.vector_ops, HomeFrame)
+
+
+class MatrixHomeFrame(GenericMenuFrame):
+    # Supported operations dictionary for GUI buttons
+    matrix_ops = {
                     "Addition": HomeFrame,
                     "Subtraction": HomeFrame, 
                     "Dot Product": HomeFrame,
@@ -161,370 +518,10 @@ class VectorHomeFrame(GenericMenuFrame):
                    }
 
     def __init__(self, parent, controller):
-        super().__init__(parent, controller, "Select Vector Operation", self.vector_ops, HomeFrame)
-        
-
-class VectorAdditionFrame(ttk.Frame):
-    def create_entry(self, n: int, col: int, row: int, width=10) -> tuple:
-        '''
-        Creates a label and an entry widget for input vector
-        Returns tuple of a dict object of placed entries with serial integer numbers as keys and number of last row in grid
-
-        Parameters:
-        n = number of entries to make
-        col = column to place entry
-        row = row number to place entry
-        width = width of entry widget
-        '''
-        input = {}
-
-        for i in range(1, n+1):
-            # Place a label
-            ttk.Label(self.container, text=f"vector {i}: ", font=self.custom_font).grid(column=col, row=row, pady=15)
-            
-            vector = ttk.Entry(self.container, width=width)
-            input[f"{i}"] = vector
-            vector.grid(column=col+1, row=row, pady=10, sticky=W)
-            row = row + 1
-
-        return input, row
-        
-    # takes dictionary of entry widgets in kwargs
-    # returns list of extracted Vector(s)
-    def entry_to_vectors(self, **kwargs) -> list:
-        '''
-        Converts entry widgets input to Vector objects
-
-        Parameters:
-        kwargs = expected a dictionary of entry widgets
-
-        '''
-        # number of vectors, n, is passed from previous function call
-        tmp = [value for _, value in kwargs.items()]
-        
-        try:
-            vectors = [text_vector.strip().split(" ") for text_vector in tmp]
-            total_vectors = len(vectors)
-            
-            # Converts str values to int
-            for i in range(total_vectors):
-                vector_length = len(vectors[i])
-
-                for j in range(vector_length):
-                    vectors[i][j] = int(vectors[i][j])
-            
-        #IndexError if dim of vectors not same
-        except (IndexError, ValueError):
-            messagebox.showerror("Error 3", "Invalid input. error_code=3")
-            return
-        
-        else: 
-            vectors = [Vector(vector) for vector in vectors]
-       
-        return vectors
-    
-    # Vector addition function gui thread
-    def vector_add_gui_1(self, operation=ADD):
-        self.new_window()
-
-        if operation == ADD:
-            ttk.Label(self.container, text="Number of vectors to add: ", font=self.custom_font).grid(column=0, row=2, columnspan=2, pady=15) 
-
-        elif operation == SUBTRACT:
-            ttk.Label(self.container, text="Number of vectors to subtract: ", font=self.custom_font).grid(column=0, row=2, columnspan=2, pady=15) 
-
-        ttk.Button(self.container, text="Back", command=lambda: self.back(prev="vector")).grid(column=0, row=0, sticky= W, pady=(0, 50))
-       
-        number = ttk.Entry(self.container)
-        number.grid(column=0, row=3, pady=10)
-        # Set cursor on entry
-        number.focus_set()
-
-        # bind Enter key to entry
-        number.bind('<Return>', lambda event: self.vector_add_gui_2(number.get(), operation))
-
-        enter = ttk.Button(self.container, text="Enter", command= lambda event: self.vector_add_gui_2(number.get()))
-        enter.grid(column=1, row=3, padx=15, sticky= W)
+        super().__init__(parent, controller, "Select Matrix Operation", self.matrix_ops, HomeFrame)
 
 
-    # stores input vectors
-    def vector_add_gui_2(self, n, operation):
-        self.new_window()
 
-        # Dictionary to store Entry widgets
-        input = {}
-
-        self.create_button("Back", partial(self.vector_add_gui_1, operation), 0, 0, W)
-        ttk.Label(self.container, text="Enter components separated by blankspace: ", font=self.custom_font).grid(column=0, row=2, columnspan=2, pady=15)
-        home = ttk.Button(self.container, text="Home", command=partial(self.__init__,self.app_object))
-        home.grid(column=1, row=0, sticky=E)
-
-        try:
-            n = int(n)
-        except ValueError:
-            messagebox.showerror("Invalid Input", "Please enter a valid integer. error_code=2")
-            self.back(prev="vector")
-
-        else:
-            input, last_row = self.create_entry(n, 0, 3)
-            
-            # Focus cursor on first entry widget    
-            input["1"].focus_set()
-
-            # press Enter for next entry
-            for j in range(1, n + 1):
-                if j < n:
-                    input[f"{j}"].bind('<Return>', lambda event, j=j : input[f"{j+1}"].focus_set())
-                else:
-                    input[f"{j}"].bind('<Return>', lambda event : self.vector_add_gui_3(n, operation, **{key : input[key].get() for key in input}))
-
-        # create dictionary which has all vectors and pass it to same addition function
-        ttk.Button(self.container, text="Enter", command=lambda : self.vector_add_gui_3(n, operation, **{key : input[key].get() for key in input})).grid(column=1, row=5+last_row, padx=25, sticky= E)
-        
-
-    def vector_add_gui_3(self, n, operation, **kwargs):
-        self.new_window()
-
-        ttk.Button(self.container, text="Back", command=lambda: self.vector_add_gui_2(n=n).grid(column=0, row=0, sticky= W))
-        home = ttk.Button(self.container, text="Home", command=partial(self.__init__,self.app_object))
-        home.grid(column=1, row=0, sticky=E)
-
-        # number of vectors, n, is passed from previous function call
-        tmp = [value for _, value in kwargs.item()]
-        
-        try:
-            vectors = [vector.strip().split(" ") for vector in tmp]
-            vector_length = len(vectors[0])
-
-            for i in range(len(vectors)):
-                
-                if len(vectors[i]) != vector_length:
-                    raise ValueError("Cannot add vectors of different length!")
-                
-            vectors = [[int(element) for element in vector] for vector in vectors]
-         
-        except ValueError:
-            messagebox.showerror("Error 3", "Invalid input. error_code=3")
-            self.vector_add_gui_2(n, operation)
-        
-        else: 
-            vectors = [Vector(vector) for vector in vectors]
-         
-            sum = vectors[0]
-            if operation == ADD:
-                for vector in vectors[1:]:
-                    sum += vector
-                    
-            elif operation == SUBTRACT:
-                for vector in vectors[1:]:
-                    sum -=  vector
-
-            self.show_result_vector(sum, n, operation)             
-    # Display resultant vector 
-    def show_result_vector(self, vector, n, operation):
-        back = self.create_button("Back", partial(self.vector_add_gui_2, n, operation), 0,0, W)
-        back.focus_set()
-        back.bind('<BackSpace>', lambda event: self.vector_add_gui_2(n, operation))
-
-        home = ttk.Button(self.container, text="Home", command=partial(self.__init__,self.app_object))
-        home.grid(column=1, row=0, sticky=E)
-        
-        result = "["
-        
-        for i in vector.cords:
-            result += f" {str(i)}"
-
-        result += " ]"
-
-        ttk.Label(self.container, text="Resultant Vector: ", font=self.custom_font).grid(column=0, row=2, columnspan=2, pady=15) 
-        ttk.Label(self.container, text=result, font=self.custom_font).grid(column=2, row=2, columnspan=2, pady=15) 
-
-        
-    # Subtraction operation borrows from addition operation
-    def vector_subtract(self):
-        self.vector_add_gui_1(operation=SUBTRACT)
-    
-    # Dot, Cross product and get angle implementation
-    # Implements GUI logic
-    def product(self, operation=""):
-        self.new_window()
-
-        col = 0
-        row = 0
-        n = 2
-        self.create_button("Back", partial(self.__init__, self), col, row, W)
-        if operation==CROSS:
-            ttk.Label(self.container, text="Enter only 3 components separated by blankspace: ", font=self.custom_font).grid(column=col, row=row + 1, columnspan=2, pady=15)
-        else:   
-            ttk.Label(self.container, text="Enter components separated by blankspace: ", font=self.custom_font).grid(column=col, row=row + 1, columnspan=2, pady=15)
-
-        row += 1
-
-        input, last_row = self.create_entry(n, col, row+1)
-    
-        # Focus cursor on first entry widget    
-        input["1"].focus_set()
-
-        # press Enter for next entry
-        for j in range(1, n+1):
-            if j < 2:
-                input[f"{j}"].bind('<Return>', lambda event, j=j : input[f"{j+1}"].focus_set())
-            else:
-                input[f"{j}"].bind('<Return>', lambda event : self.product_2(self.entry_to_vectors(**{key : input[key].get() for key in input}), col, last_row, operation))
-
-        # create dictionary which has all vectors and pass it to same addition function
-        ttk.Button(self.container, text="Enter", command=lambda : self.product_2(self.entry_to_vectors(**{key : input[key].get() for key in input}), col, last_row, operation)).grid(column=col, row=last_row + 1, padx=25, sticky=E)
-        last_row += 1
-#############################
-    # Implements operations
-    def product_2(self, vectors, col, last_row, operation=""):
-        
-        home = ttk.Button(self.container, text="Home", command=partial(self.__init__, self.app_object))
-        home.grid(column=1, row=0, sticky=E)
-
-    # assuming all goes well and vectors list containes 2 vectors
-        if vectors:
-            try:
-                if operation == DOT:
-                    result = Vector.dot(vectors[0], vectors[1])
-                    ttk.Label(self.container, text="Dot product: ", font=self.custom_font).grid(column=col, row=last_row + 1, columnspan=2, pady=15, sticky=W) 
-                    last_row += 1
-                elif operation == CROSS:
-                    result = Vector.cross(vectors[0], vectors[1])
-                    ttk.Label(self.container, text="Cross product: ", font=self.custom_font).grid(column=col, row=last_row + 1, columnspan=2, pady=15, sticky=W) 
-                    last_row += 1
-                elif operation == ANGLE:
-                    result = Vector.get_angle(vectors[0], vectors[1])
-                    result = (result * 180) / 3.14
-                    ttk.Label(self.container, text="Angle between vectors in degrees is: ", font=self.custom_font).grid(column=col, row=last_row + 1, columnspan=2, pady=15, sticky=W) 
-                    last_row += 1
-                
-                ttk.Label(self.container, text=result, font=self.custom_font).grid(column=col, row=last_row + 1, columnspan=2, pady=15, sticky=W) 
-
-            except ValueError:
-                messagebox.showerror("Invalid Input!", "Invalid input")
-        else:
-            return
-    # Scalar multiplication of vector
-    def scalar(self):
-        self.new_window()
-
-        col = 0
-        row = 0
-        n = 1
-        self.create_button("Back", partial(self.__init__, self), col, row, W)
-        ttk.Label(self.container, text="Enter components separated by blankspace: ", font=self.custom_font).grid(column=col, row=row + 1, columnspan=2, pady=15)
-
-        row += 1
-
-        input, last_row = self.create_entry(n, col, row+1)
-        ttk.Label(self.container, text="Enter scalar: ", font=self.custom_font).grid(column=col, row=last_row, pady=15)
-        last_row+=1
-        
-        scalar = ttk.Entry(self.container)
-        scalar.grid(column=col+1, row=last_row-1, pady=15)
-        input["scalar"] = scalar
-        last_row += 1
-    
-    # Focus cursor on first entry widget    
-        input["1"].focus_set()
-        input["1"].bind('<Return>', lambda event : input["scalar"].focus_set())
-        
-        input["scalar"].bind('<Return>', lambda event : self.scalar2(self.entry_to_vectors(**{key : input[key].get() for key in input}), col, last_row+1))
-
-        # create dictionary which has all vectors and pass it to same addition function
-        ttk.Button(self.container, text="Enter", command=lambda : self.scalar2(self.entry_to_vectors(**{key : input[key].get() for key in input}), col, last_row+1)).grid(column=col, row=last_row + 1, padx=25, sticky=E)
-
-        return
-    
-    # takes a list of vectors
-    def scalar2(self, vectors: 'Vector', col: int, last_row: int) -> None:
-        '''
-        Takes list of two vectors one of which is a scalar (vector with one entry)
-        Displays result on app screen
-
-        '''
-        home = ttk.Button(self.container, text="Home", command=partial(self.__init__,self.app_object))
-        home.grid(column=1, row=0, sticky=E)
-
-        try:
-            vector = vectors[0]
-            scalar = vectors[1].cords[0]
-        except (KeyError, TypeError):
-            messagebox.showerror("Invalid input!", "Invalid Input")
-            return
-        try: 
-            result = vector * float(scalar)
-            ttk.Label(self.container, text="Scalar product: ", font=self.custom_font).grid(column=col, row=last_row + 1, columnspan=2, pady=15, sticky=W) 
-            last_row += 1
-            ttk.Label(self.container, text=result, font=self.custom_font).grid(column=col, row=last_row + 1, columnspan=2, pady=15, sticky=W) 
-
-        except ValueError:
-                messagebox.showerror("Invalid Input!", "Invalid input")
-                return
-        else:
-            return    
-    # General proerties of a vector
-
-    def vector_properties(self):
-        '''
-        Displays gui for operation
-        '''
-        self.new_window()
-
-        col = 0
-        row = 0
-        n = 1
-        self.create_button("Back", partial(self.__init__, self), col, row, W)
-        ttk.Label(self.container, text="Enter components separated by blankspace: ", font=self.custom_font).grid(column=col, row=row + 1, columnspan=2, pady=15)
-
-        row += 1
-
-        input, last_row = self.create_entry(n, col, row+1)
-        input["1"].focus_set()
-        input["1"].bind('<Return>', lambda event : self.vector_properties2(self.entry_to_vectors(**{key : input[key].get() for key in input}), col, last_row+1))
-
-        ttk.Button(self.container, text="Enter", command=lambda : self.vector_properties2(self.entry_to_vectors(**{key : input[key].get() for key in input}), col, last_row+1)).grid(column=col, row=last_row + 1, padx=25, sticky=E)
-
-    def vector_properties2(self, vectors, col, last_row):
-        '''
-        Calculates vector properties and displays them
-        '''
-        self.new_window()
-        self.create_button("Back", partial(self.vector_properties), 0, 0, W)
-        home = ttk.Button(self.container, text="Home", command=partial(self.__init__,self.app_object))
-        home.grid(column=1, row=0, sticky=E)
-
-        if not vectors:
-            return self.vector_properties()
-        
-        vector = vectors[0]
-        
-        ttk.Label(self.container, text="Entered Vector is: ", font=self.custom_font).grid(column=col, row=last_row + 1, columnspan=2, pady=15, sticky=W) 
-        last_row += 1
-
-        dimension = vector.dim
-        theta = vector.get_theta()
-        phi = vector.get_phi()
-
-        properties = {"vector": vector, "dimension": dimension, "theta (in rad)": theta, "phi (in rad)": phi}
-
-        for key in properties:
-            ttk.Label(self.container, text=f"{key}: {properties[key]}", font=self.custom_font).grid(column=col, row=last_row + 1, columnspan=2, pady=15, sticky=W)
-            last_row += 1
-            
-    # Supported operations dictionary for GUI buttons
-    operations = {
-
-                    "Addition": vector_add_gui_1,
-                    "Subtraction": vector_subtract, 
-                    "Dot Product": partial(product, operation = DOT),
-                    "Cross Product": partial(product, operation = CROSS),
-                    "Angle": partial(product, operation = ANGLE), 
-                    "Scalar Multiplication": scalar, 
-                    "Vector Properties": vector_properties,
-                   }
-    ######
 class MatrixOps(AppController):
 
     def __init__(self, app_object):
