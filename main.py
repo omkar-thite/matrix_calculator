@@ -535,8 +535,61 @@ class MatrixOperationFrameBase(OperationFrameBase):
     def __init__(self, parent, controller, title):
         super().__init__(parent, controller, title, MatrixHomeFrame)
 
+        outer_body = self.body
+        outer_body.columnconfigure(0, weight=1)
+        outer_body.rowconfigure(0, weight=1)
+
+        self._scroll_canvas = tk.Canvas(outer_body, highlightthickness=0)
+        self._v_scroll = ttk.Scrollbar(
+            outer_body, orient="vertical", command=self._scroll_canvas.yview
+        )
+        self._h_scroll = ttk.Scrollbar(
+            outer_body, orient="horizontal", command=self._scroll_canvas.xview
+        )
+
+        self._scroll_canvas.configure(
+            yscrollcommand=self._v_scroll.set,
+            xscrollcommand=self._h_scroll.set,
+        )
+
+        self._scroll_canvas.grid(column=0, row=0, sticky="nsew")
+        self._v_scroll.grid(column=1, row=0, sticky="ns")
+        self._h_scroll.grid(column=0, row=1, sticky="ew")
+
+        self.body = ttk.Frame(self._scroll_canvas)
+        self.body.columnconfigure(0, weight=1)
+        self.body.columnconfigure(1, weight=1)
+
+        self._scroll_window = self._scroll_canvas.create_window(
+            (0, 0), window=self.body, anchor="nw"
+        )
+
+        self.body.bind("<Configure>", self._on_scroll_content_configure)
+        self._scroll_canvas.bind("<Configure>", self._on_scroll_canvas_configure)
+        self._scroll_canvas.bind("<Button-4>", self._on_mousewheel_up)
+        self._scroll_canvas.bind("<Button-5>", self._on_mousewheel_down)
+
+    def _on_scroll_content_configure(self, _event):
+        self._scroll_canvas.configure(scrollregion=self._scroll_canvas.bbox("all"))
+
+    def _on_scroll_canvas_configure(self, event):
+        current_width = self._scroll_canvas.itemcget(self._scroll_window, "width")
+        if not current_width:
+            self._scroll_canvas.itemconfigure(self._scroll_window, width=event.width)
+
+    def _on_mousewheel_up(self, _event):
+        self._scroll_canvas.yview_scroll(-1, "units")
+
+    def _on_mousewheel_down(self, _event):
+        self._scroll_canvas.yview_scroll(1, "units")
+
     def show_input_step(self):
         raise NotImplementedError
+
+    def clear_body(self):
+        super().clear_body()
+        self._scroll_canvas.yview_moveto(0)
+        self._scroll_canvas.xview_moveto(0)
 
     def create_matrix_grid(self, start_row, rows, cols, label):
         ttk.Label(self.body, text=label, font=self.custom_font).grid(
@@ -892,7 +945,7 @@ class MatrixHomeFrame(GenericMenuFrame):
 
 def main():
     root = tk.Tk()
-    root.resizable(True, True)
+    root.resizable(False, False)
     app = AppController(root)
     app.root.mainloop()
 
