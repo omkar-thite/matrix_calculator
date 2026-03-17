@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, font
 from functools import partial
 from vector import Vector, Matrix
 
@@ -19,109 +19,152 @@ MATRIX = "matrix"
 SCALAR = "scalar"
 
 
-class MyApp:
-    custom_font = ("Haveltica", 16)
+class AppController:
 
     def __init__(self, root):
         '''
         Initialse variables and display home window
         '''
+        # Initialize root UI 
+
         self.root = root
-        self.root.title("linear algebra")
-        self.root.geometry("+100+100")
+        self.root.title("Matrix Calculator")
 
-        root.columnconfigure(0, weight=1)
-        root.rowconfigure(2, weight=1)
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+
+        # 2. Calculate 50% of the screen size (must be converted to integers)
+        window_width = int(screen_width * 0.25)
+        window_height = int(screen_height * 0.25)
+
+        # 3. Apply the dimensions to the window
+        self.root.geometry(f"{window_width}x{window_height}")
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(0, weight=1)
+
+        self.custom_font = font.Font(family="Helvetica", size=30, weight="bold")
+        self.style = ttk.Style(self.root)
+        self.style.configure("BigText.TButton", font=self.custom_font.name)
+
+        # Start at the main menu
+        self.current_frame = None
+        self.show_home()
+
+
+    def switch_frame(self, new_frame_class):
+        """Destroys current frame and loads a new one."""
+        if self.current_frame is not None:
+            self.current_frame.destroy()
+        self.current_frame = new_frame_class(self.root, self)
+        self.current_frame.grid(column=0, row=0, sticky='nwes')
     
-        self.container = ttk.Frame(root)
-        self.container.grid(column=0, row=0, padx=100, pady=(50,20))
+    def show_home(self):
+        self.switch_frame(HomeFrame)
 
-        ttk.Label(self.container, text="Select operation", font=self.custom_font).grid(column=0, row=1, columnspan=2, pady=15, sticky=W)   
-        ttk.Button(self.container, text="Vector", command=partial(VectorOps, self), padding=25).grid(column=0, row=2, sticky=E, padx=25)
-        ttk.Button(self.container, text="Matrix", command=partial(MatrixOps, self), padding=25).grid(column=1, row=2, sticky=E, padx=25)
-        tk.Frame(self.container, height=50).grid(column=0, row=3)
 
+class HomeFrame(ttk.Frame):
+    def __init__(self, parent, controller):
+        super().__init__(parent)
+
+        self.controller = controller
+
+        # Configure grid weights for proper alignment
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
+        self.rowconfigure(1, weight=0)
+        self.rowconfigure(2, weight=0)
+        self.rowconfigure(3, weight=1)
+
+        # Configure Home window
+        ttk.Label(self, 
+                  text="Select operation",
+                  font=controller.custom_font
+                  ).grid(column=0, row=1, sticky='ew', pady=(20, 30))
         
-    def new_window(self):
-        '''
-        Destroys current window and replaces with new one
-        '''
-        self.container.destroy()
-
-        self.container = ttk.Frame(self.root)
-        self.container.grid(column=0, row=0, sticky=(N,W,E,S), padx=10, pady=(0,50))
+        vector_button = ttk.Button(self, 
+                                   text="Vector", 
+                                   padding=10,
+                                   style="BigText.TButton",
+                                   command=lambda: controller.switch_frame(VectorHomeFrame)
+                                   )
+        vector_button.grid(column=0, row=2, sticky='ew', padx=40, pady=10)
         
-    
-    def create_button(self, text, command, column, row, sticky, padx=0, pady=0, columnspan=1,  padding=0):
-        '''
-        Creates and places button widget
-        '''
-        button = ttk.Button(self.container, text=text, command=command, padding=padding)
-        button.grid(column=column, row=row, sticky=sticky, padx=padx, pady=pady, columnspan=columnspan)
+        matrix_button = ttk.Button(self,
+                                   text="Matrix", 
+                                   padding=10,
+                                   style="BigText.TButton",
+                                   command=lambda: controller.switch_frame(MatrixOps)
+                                   )
+        matrix_button.grid(column=0, row=3, sticky='ew', padx=40, pady=10)
 
-        return button
+class GenericMenuFrame(ttk.Frame):
+    def __init__(self, parent, controller, title, operations, back_frame):
+        super().__init__(parent)
+        self.controller = controller
 
-    
-  
-    def back(self, prev):
-        self.container.destroy()
-
-        if prev == HOME:
-            self.new_window()
-            MyApp.__init__(self, self.root)
-
-        if prev == "vector":
-            self.new_window()
-            VectorOps(self)
-
-
-    # Home windows for vector and matrix operations
-    def home_window(self, mode):
-
-        container = self.container
-
-        self.create_button("Back", partial(self.back, prev=HOME), 0, 0, W, padx=15, pady=(0,100))
-        
-        ttk.Frame(container, height=50).grid(column=0, row=1)  
-        ttk.Label(container, text="Select operation below", font=self.custom_font).grid(column=0, row=2, columnspan=2, pady=50, sticky=W) 
-
-        col = 0
-        row = 3
-
-        if mode == VECTOR:
-            operations = VectorOps.operations
-        elif mode == MATRIX:
-            operations = MatrixOps.operations
-
-        for text in operations:
-            # go to next line after 3 columns
-            if col == 3:
-                col = 0
-                row = row + 1
+        # Configure grid weights for proper alignment
+        for i in range(3):
+            self.columnconfigure(i, weight=1)
             
-            self.create_button(text, partial(operations[text], self), col, row, (N,S,E,W), padding=25)
-            col = col + 1
+        self.rowconfigure(0, weight=0)  # Back button row
+        self.rowconfigure(1, weight=0)  # Title row
+        self.rowconfigure(2, weight=1)  # Top spacer
+        self.rowconfigure(3, weight=0)  # Buttons start row
+        # We will add a bottom spacer dynamically after creating buttons
 
-        ttk.Frame(container).grid(column=0, row=5, pady=50)  
+        # Back Button
+        ttk.Button(
+            self, 
+            text="Back", 
+            command=lambda: controller.switch_frame(back_frame), 
+            padding=10
+        ).grid(row=0, column=0, sticky=W, padx=10, pady=10)        
+        
+        # Dynamic Title
+        ttk.Label(
+            self, 
+            text=title, 
+            font=getattr(controller, 'custom_font', ('Arial', 30))
+        ).grid(column=0, row=1, columnspan=3, pady=(10, 20), sticky='ew') 
 
-            # add some padding to each widget
-        for child in self.container.winfo_children():
-            child.grid_configure(padx=5, pady=5) 
-################################################################################################################################################3
+        # Generate Buttons dynamically with math (no manual row/col tracking needed)
+        start_row = 3
+        max_cols = 3
+        
+        for i, (btn_text, target_frame) in enumerate(operations.items()):
+            row_idx = start_row + (i // max_cols)
+            col_idx = i % max_cols
             
+            ttk.Button(
+                self, 
+                text=btn_text, 
+                style="BigText.TButton", 
+                # CRITICAL FIX: target=target_frame binds the specific frame to this button's lambda
+                command=lambda target=target_frame: controller.switch_frame(target), 
+                padding=10
+            ).grid(row=row_idx, column=col_idx, sticky='ew', padx=10, pady=10)    
 
-class VectorOps(MyApp):
+        # Add bottom spacer after the last row of buttons
+        self.rowconfigure(start_row + (len(operations) // max_cols) + 1, weight=1)
 
-    def __init__(self, app_object):
-        self.root = app_object.root
-        self.container = app_object.container
-        self.app_object = app_object
-        self.new_window()
-        self.home_window(VECTOR)
-    
 
- ##############################################################################################################################################################################3
-    
+class VectorHomeFrame(GenericMenuFrame):
+    # Supported operations dictionary for GUI buttons
+    vector_ops = {
+                    "Addition": HomeFrame,
+                    "Subtraction": HomeFrame, 
+                    "Dot Product": HomeFrame,
+                    "Cross Product": HomeFrame,
+                    "Angle": HomeFrame, 
+                    "Scalar Multiplication": HomeFrame, 
+                    "Vector Properties": HomeFrame,
+                   }
+
+    def __init__(self, parent, controller):
+        super().__init__(parent, controller, "Select Vector Operation", self.vector_ops, HomeFrame)
+        
+
+class VectorAdditionFrame(ttk.Frame):
     def create_entry(self, n: int, col: int, row: int, width=10) -> tuple:
         '''
         Creates a label and an entry widget for input vector
@@ -145,9 +188,7 @@ class VectorOps(MyApp):
             row = row + 1
 
         return input, row
-    
-##############################################################################################################################################################################3
-    
+        
     # takes dictionary of entry widgets in kwargs
     # returns list of extracted Vector(s)
     def entry_to_vectors(self, **kwargs) -> list:
@@ -181,8 +222,6 @@ class VectorOps(MyApp):
             vectors = [Vector(vector) for vector in vectors]
        
         return vectors
-
-##############################################################################################################################################################################3
     
     # Vector addition function gui thread
     def vector_add_gui_1(self, operation=ADD):
@@ -280,9 +319,7 @@ class VectorOps(MyApp):
                 for vector in vectors[1:]:
                     sum -=  vector
 
-            self.show_result_vector(sum, n, operation) 
-##############################################################################################################################################################################3
-            
+            self.show_result_vector(sum, n, operation)             
     # Display resultant vector 
     def show_result_vector(self, vector, n, operation):
         back = self.create_button("Back", partial(self.vector_add_gui_2, n, operation), 0,0, W)
@@ -302,14 +339,10 @@ class VectorOps(MyApp):
         ttk.Label(self.container, text="Resultant Vector: ", font=self.custom_font).grid(column=0, row=2, columnspan=2, pady=15) 
         ttk.Label(self.container, text=result, font=self.custom_font).grid(column=2, row=2, columnspan=2, pady=15) 
 
-
-##############################################################################################################################################################################3
         
     # Subtraction operation borrows from addition operation
     def vector_subtract(self):
         self.vector_add_gui_1(operation=SUBTRACT)
-
-##############################################################################################################################################################################3
     
     # Dot, Cross product and get angle implementation
     # Implements GUI logic
@@ -342,8 +375,7 @@ class VectorOps(MyApp):
         # create dictionary which has all vectors and pass it to same addition function
         ttk.Button(self.container, text="Enter", command=lambda : self.product_2(self.entry_to_vectors(**{key : input[key].get() for key in input}), col, last_row, operation)).grid(column=col, row=last_row + 1, padx=25, sticky=E)
         last_row += 1
-
-##############################################################################################################################################################################
+#############################
     # Implements operations
     def product_2(self, vectors, col, last_row, operation=""):
         
@@ -373,8 +405,6 @@ class VectorOps(MyApp):
                 messagebox.showerror("Invalid Input!", "Invalid input")
         else:
             return
-
-##############################################################################################################################################################################3
     # Scalar multiplication of vector
     def scalar(self):
         self.new_window()
@@ -433,9 +463,7 @@ class VectorOps(MyApp):
                 messagebox.showerror("Invalid Input!", "Invalid input")
                 return
         else:
-            return
-##############################################################################################################################################################################3
-    
+            return    
     # General proerties of a vector
 
     def vector_properties(self):
@@ -484,8 +512,6 @@ class VectorOps(MyApp):
         for key in properties:
             ttk.Label(self.container, text=f"{key}: {properties[key]}", font=self.custom_font).grid(column=col, row=last_row + 1, columnspan=2, pady=15, sticky=W)
             last_row += 1
-
-##############################################################################################################################################################################3
             
     # Supported operations dictionary for GUI buttons
     operations = {
@@ -498,9 +524,8 @@ class VectorOps(MyApp):
                     "Scalar Multiplication": scalar, 
                     "Vector Properties": vector_properties,
                    }
-    
-#######################################################################################################################################################
-class MatrixOps(MyApp):
+    ######
+class MatrixOps(AppController):
 
     def __init__(self, app_object):
         self.app_object = app_object
@@ -508,8 +533,6 @@ class MatrixOps(MyApp):
         self.container = app_object.container
         self.new_window()
         self.home_window(MATRIX)
-
-##############################################################################################################################################################################3
 
     
     def create_matrix(self, n, rows, columns, col, last_row, islabel=True, label_start=0):
@@ -559,8 +582,6 @@ class MatrixOps(MyApp):
             matrices[k] = matrix
                 
         return matrices, row
-
-##############################################################################################################################################################################3
     
     # Set focus on succesive matrix entries upon Enter button is pressed
     def focus(self, i, j, k, rows, columns, number_of_matrix, matrices):
@@ -589,9 +610,7 @@ class MatrixOps(MyApp):
                 if k != number_of_matrix:
                     matrices[k + 1][0][0].focus_set()
                 else:
-                    return
-##############################################################################################################################################################################3
-                
+                    return                
     def get_matrix_objects(self, number_of_matrix, rows, columns, matrices):
         '''
         Converts list(s) into Matrix(s) objects
@@ -634,8 +653,6 @@ class MatrixOps(MyApp):
      
         return matrix_dict
     
-##############################################################################################################################################################################3
-
     def matrix_add(self, operation=ADD):
         '''
         This thread implemetns Addition and Subtraction operations as both require similar GUI with minor changes
@@ -716,8 +733,6 @@ class MatrixOps(MyApp):
                 sum -= matrix[key]
 
         self.show_result(sum, rows, columns)
-
-##############################################################################################################################################################################3
     
     # Matrix Scalar Product 
     def scalar_product(self):
@@ -787,8 +802,6 @@ class MatrixOps(MyApp):
         result = matrix_dict[1] * scalar
         self.show_result(result, rows, columns)
 
-
-##############################################################################################################################################################################3
     # Matrix Multiplication
     def matrix_multiply(self):
         self.new_window()
@@ -869,8 +882,6 @@ class MatrixOps(MyApp):
         result = matrix1[1] * matrix2[1]
 
         self.show_result(result, m, q)
-
-##############################################################################################################################################################################3
     # Transpose Or Gauss eliminate function thread
     def transpose_matrix(self, operation="transpose"):
         '''
@@ -954,8 +965,6 @@ class MatrixOps(MyApp):
                 else:
                     self.show_result(result, rows, columns)
 
-##############################################################################################################################################################################3
-
     # Display resultant matrix for all operations                    
     def show_result(self, matrix, rows, columns):
         self.new_window()
@@ -973,8 +982,6 @@ class MatrixOps(MyApp):
         home.grid(column=0, row=last_row+1, sticky=E)
         home.focus_set()
         home.bind("<Return>", lambda event: self.__init__(self.app_object))
-
-##############################################################################################################################################################################3
              
     # Supported operations
     operations = {
@@ -985,13 +992,11 @@ class MatrixOps(MyApp):
                 "Transpose":partial(transpose_matrix),
                 "Gaussian Elimination": partial(transpose_matrix, operation="gauss_eliminate") ,  
                 }
-
-##############################################################################################################################################################################3
     
 def main():
     root = tk.Tk()
     root.resizable(False, False)
-    app = MyApp(root)
+    app = AppController(root)
     app.root.mainloop()
 
 
