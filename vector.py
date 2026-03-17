@@ -26,7 +26,7 @@ class Vector:
         """
         if not isinstance(coords, (list, tuple)):
             logger.error('coords is not of ty list or tuple')
-            raise TypeError("coords must be a list or tuple")
+            raise TypeError("coords must be a list or a tuple")
 
         self.coords = coords
 
@@ -476,7 +476,7 @@ class Matrix(Vector):
             for j in range(self.n):
                     transposed[j][i] = self.rows[i].coords[j]
 
-        return Matrix(transposed)
+        return Matrix([Vector(row) for row in transposed])
     
 
     # Lower triangularise

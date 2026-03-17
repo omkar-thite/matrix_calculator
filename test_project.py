@@ -1,6 +1,5 @@
-import vector
 from vector import Matrix, Vector
-from project import matrix_add, matrix_subtract, matrix_scalar_multiplication
+from main import matrix_add, matrix_subtract, matrix_scalar_multiplication
 
 tolerance = 0.00000000000001
 
@@ -12,8 +11,8 @@ def test_matrix_multiplication():
 
     result = matrix1 * matrix2
     for i in range(len(result.rows)):
-        for j in range(len(result.rows[0].cords)):
-            assert (result.rows[i].cords[j] - product.rows[i].cords[j]) < tolerance
+        for j in range(len(result.rows[0].coords)):
+            assert (result.rows[i].coords[j] - product.rows[i].coords[j]) < tolerance
 
 
 def test_matrix_add():
@@ -24,8 +23,8 @@ def test_matrix_add():
 
     result = matrix_add(matrix1, matrix2)
     for i in range(len(result.rows)):
-        for j in range(len(result.rows[0].cords)):
-            assert (result.rows[i].cords[j] - sum.rows[i].cords[j]) < tolerance
+        for j in range(len(result.rows[0].coords)):
+            assert (result.rows[i].coords[j] - sum.rows[i].coords[j]) < tolerance
 
 
 def test_matrix_subtract():
@@ -37,8 +36,8 @@ def test_matrix_subtract():
 
     result = matrix_subtract(matrix1, matrix2)
     for i in range(len(result.rows)):
-        for j in range(len(result.rows[0].cords)):
-            assert (result.rows[i].cords[j] - difference.rows[i].cords[j]) < tolerance
+        for j in range(len(result.rows[0].coords)):
+            assert (result.rows[i].coords[j] - difference.rows[i].coords[j]) < tolerance
     
 def test_matrix_scalar_multiplication():
     matrix1 = Matrix([Vector([2, 3, 4, 4]), Vector([1, 0, 2.1, 1]), Vector([1, -2.2, 2, 1])])
@@ -49,7 +48,7 @@ def test_matrix_scalar_multiplication():
     result = matrix_scalar_multiplication(matrix1, scalar)
 
     for i in range(len(result.rows)):
-        assert result.rows[i].cords == result.rows[i].cords
+        assert result.rows[i].coords == result.rows[i].coords
     
 def test_cross_product():
     u = Vector([2, 1, 5])
@@ -59,7 +58,7 @@ def test_cross_product():
 
     
     for i in range(result.dim):
-        assert (result.cords[i] - cross.cords[i]) < tolerance
+        assert (result.coords[i] - cross.coords[i]) < tolerance
 
 
 def test_dot_product():

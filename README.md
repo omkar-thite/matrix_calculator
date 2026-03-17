@@ -44,7 +44,7 @@ Linear Algebra is based on objects known as vectors and matrices. Both vectors a
   Application consist of following files:
   - vector.py,  project.py, test_project.py, requirements.txt
 
-  vector.py is a helper module while project.py is a main file. test_project.py is test file. requrements.txt has required modules which is only tkinter.
+  vector.py is a helper module while project.py is a main file. test_project.py is test file. requirements.txt currently contains only test dependency (`pytest`). `tkinter` is a standard Python GUI module and is installed with Python/system packages rather than via pip.
 
   vector.py file contains definition of Vector and Matrix classes. Both classes contains special methods like __str__, __add__, etc that defines addition +, subtraction -, multiplication * and division /, between respective objects. Such definitions follows directly from theory of Linear Algebra. 
 
