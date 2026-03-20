@@ -2,11 +2,10 @@
 
 A refactored Python GUI calculator for core vector and matrix operations.
 
-## Refactor Notice
+## Refactor 
 
 This repository has been refactored with the help of AI Copilot (GitHub Copilot).
 
-- The current codebase is the actively maintained version.
 - To review the original implementation history, see older commits in this repository.
 - The full previous README has been preserved as legacy documentation in [README_OLD.md](README_OLD.md).
 
